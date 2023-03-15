@@ -1,145 +1,108 @@
+'use strict';
+
 const utils = require('@iobroker/adapter-core');
 const SunCalc = require('suncalc');
-const moment = require('moment');
 
 class HclControl extends utils.Adapter {
-    constructor(options = {}) {
-        super({
-            ...options,
-            name: 'HCL-Control',
-        });
+
+    onReady() {
+        this.log.info('HCL-Control Adapter is ready');
+
+        this.setInitialState();
+
+        // Execute update function every minute
+        this.updateInterval = setInterval(this.updateLightTemperature.bind(this), 60 * 1000);
     }
 
-    async onReady() {
-        this.subscribeStates('*');
-        await this.setObjectNotExistsAsync('lightTemperature', {
-            type: 'state',
-            common: {
-                name: 'Light temperature',
-                type: 'number',
-                role: 'level.temperature',
-                read: true,
-                write: false,
-                def: 0,
-                unit: 'K',
-                desc: 'Current light temperature based on sun position and settings'
-            },
-            native: {},
-        });
-
-        await this.calculateLightTemperature();
-        setInterval(() => {
-            this.calculateLightTemperature();
-        }, 60000);
+    setInitialState() {
+        this.config.minTemperature = this.config.minTemperature || 2700;
+        this.config.maxTemperature = this.config.maxTemperature || 6500;
+        this.config.considerSeasons = this.config.considerSeasons === undefined ? true : this.config.considerSeasons;
+        this.config.manualTemperatureCurve = this.config.manualTemperatureCurve === undefined ? false : this.config.manualTemperatureCurve;
+        this.config.timePeriod1Start = this.config.timePeriod1Start || '06:00';
+        this.config.timePeriod1End = this.config.timePeriod1End || '12:00';
+        this.config.timePeriod2Start = this.config.timePeriod2Start || '18:00';
+        this.config.timePeriod2End = this.config.timePeriod2End || '22:00';
     }
 
-    async calculateLightTemperature() {
-        const { latitude, longitude } = this.config;
+    updateLightTemperature() {
         const now = new Date();
-        const sunTimes = SunCalc.getTimes(now, latitude, longitude);
-        const currentSeason = this.getSeason(now);
-        const considerSeasons = this.config.considerSeasons;
-        const manualTemperatureCurve = this.config.manualTemperatureCurve;
-        const minTemperature = this.config.minTemperature;
-        const maxTemperature = this.config.maxTemperature;
+        const sunTimes = SunCalc.getTimes(now, this.config.latitude, this.config.longitude);
+        let temperature;
 
-        let lightTemperature = 0;
-
-        if (manualTemperatureCurve) {
-            lightTemperature = this.calculateManualTemperature(now, minTemperature, maxTemperature);
+        if (this.config.manualTemperatureCurve) {
+            temperature = this.calculateManualTemperature(now);
         } else {
-            lightTemperature = this.calculateAutoTemperature(now, sunTimes, currentSeason, considerSeasons, minTemperature, maxTemperature);
+            temperature = this.calculateTemperatureBasedOnSunPosition(now, sunTimes);
         }
 
-        this.setState('lightTemperature', { val: lightTemperature, ack: true });
+        this.setState('lightTemperature', temperature, true);
     }
 
-    calculateAutoTemperature(now, sunTimes, currentSeason, considerSeasons, minTemperature, maxTemperature) {
-        const daylightTime = sunTimes.sunrise < now && now < sunTimes.sunset;
-        const seasonFactor = considerSeasons ? this.getSeasonFactor(currentSeason) : 1;
+    calculateManualTemperature(now) {
+        const currentTime = now.getHours() * 60 + now.getMinutes();
+        const period1Start = this.timeToMinutes(this.config.timePeriod1Start);
+        const period1End = this.timeToMinutes(this.config.timePeriod1End);
+        const period2Start = this.timeToMinutes(this.config.timePeriod2Start);
+        const period2End = this.timeToMinutes(this.config.timePeriod2End);
+
+        let temperature;
+
+        if (currentTime >= period1Start && currentTime <= period1End) {
+            const progress = (currentTime - period1Start) / (period1End - period1Start);
+            temperature = this.config.minTemperature + (this.config.maxTemperature - this.config.minTemperature) * progress;
+        } else if (currentTime >= period2Start && currentTime <= period2End) {
+            const progress = (currentTime - period2Start) / (period2End - period2Start);
+            temperature = this.config.maxTemperature - (this.config.maxTemperature - this.config.minTemperature) * progress;
+        } else {
+            temperature = currentTime > period1End && currentTime < period2Start ? this.config.maxTemperature : this.config.minTemperature;
+        }
+
+        return temperature;
+    }
+
+    calculateTemperatureBasedOnSunPosition(now, sunTimes) {
+        const maxTemperature = 6500;
+        const minTemperature = 2700;
         const temperatureRange = maxTemperature - minTemperature;
 
-        if (daylightTime) {
-            const sunPosition = SunCalc.getPosition(now, this.config.latitude, this.config.longitude);
-            const altitudeFactor = (sunPosition.altitude + Math.PI / 2) / Math.PI;
-            return minTemperature + temperatureRange * altitudeFactor * seasonFactor;
-        } else {
+        if (now < sunTimes.sunriseEnd || now > sunTimes.sunsetStart) {
             return minTemperature;
         }
+
+        const solarNoon = sunTimes.solarNoon;
+        const dayDurationInMinutes = (sunTimes.sunsetStart - sunTimes.sunriseEnd) / 60000;
+        const minutesSinceSunrise = (now - sunTimes.sunriseEnd) / 60000;
+
+        let progress = minutesSinceSunrise / dayDurationInMinutes;
+
+        if (this.config.considerSeasons) {
+            const currentMonth = now.getMonth();
+            const seasonProgress = (currentMonth % 6) / 5;
+            progress = (progress + seasonProgress) / 2;
+        }
+
+        return maxTemperature - temperatureRange * progress;
     }
 
-    calculateManualTemperature(now, minTemperature, maxTemperature) {
-        const timePeriod1 = this.config.timePeriod1;
-        const timePeriod2 = this.config.timePeriod2;
-
-        const nowMoment = moment(now);
-        const period1Start = moment(timePeriod1.start, 'HH:mm');
-        const period1End = moment(timePeriod1.end, 'HH:mm');
-        const period2Start = moment(timePeriod2.start, 'HH:mm');
-        const period2End = moment(timePeriod2.end, 'HH:mm');
-
-        const temperatureRange = maxTemperature - minTemperature;
-
-        if (nowMoment.isBetween(period1Start, period1End, undefined, '[]')) {
-            const progress = nowMoment.diff(period1Start) / period1End.diff(period1Start);
-            return minTemperature + temperatureRange * progress;
-        } else if (nowMoment.isBetween(period2Start, period2End, undefined, '[]')) {
-            const progress = nowMoment.diff(period2Start) / period2End.diff(period2Start);
-            return maxTemperature - temperatureRange * progress;
-        } else if (nowMoment.isBetween(period1End, period2Start, undefined, '[]')) {
-            return maxTemperature;
-        } else {
-            return minTemperature;
-        }
-    }
-
-    getSeason(date) {
-        const month = date.getMonth() + 1;
-        if (month >= 3 && month <= 5) {
-            return 'spring';
-        } else if (month >= 6 && month <= 8) {
-            return 'summer';
-        } else if (month >= 9 && month <= 11) {
-            return 'autumn';
-        } else {
-            return 'winter';
-        }
-    }
-
-    getSeasonFactor(season) {
-        switch (season) {
-            case 'spring':
-                return 0.9;
-            case 'summer':
-                return 1;
-            case 'autumn':
-                return 0.8;
-            case 'winter':
-                return 0.7;
-            default:
-                return 1;
-        }
-    }
-
-    onStateChange(id, state) {
-        if (state && !state.ack) {
-            this.log.info(`state ${id} changed: ${state.val} (ack = ${state.ack})`);
-        }
+    timeToMinutes(timeString) {
+        const timeArray = timeString.split(':');
+        const hours = parseInt(timeArray[0], 10);
+        const minutes = parseInt(timeArray[1], 10);
+        return hours * 60 + minutes;
     }
 
     onUnload(callback) {
-        try {
-            this.log.info('cleaned everything up...');
-            callback();
-        } catch (e) {
-            callback();
-        }
+        clearInterval(this.updateInterval);
+        callback();
     }
 }
 
+// @ts-ignore parent is a valid property on module
 if (module.parent) {
+    // @ts-ignore parent is a valid property on module
     module.exports = (options) => new HclControl(options);
 } else {
+    // otherwise start the instance directly
     new HclControl();
 }
-
