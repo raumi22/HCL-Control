@@ -1,0 +1,65 @@
+{
+  "common": {
+    "name": "HCL-Control",
+    "version": "0.0.1",
+    "title": "Human Centric Lighting Control",
+    "authors": "Manuel Auer ma-git@e-mail.de",
+    "desc": "Adapter to control indoor lighting temperature based on sun position and user preferences",
+    "icon": "icon.png",
+    "enabled": true,
+    "extIcon": "https://raw.githubusercontent.com/raumi22/HCL-Control/master/admin/icon.png",
+    "keywords": ["lighting", "temperature", "sun", "automation"],
+    "platform": "javascript",
+    "license": "MIT",
+    "repository": "https://github.com/raumi22/HCL-Control",
+    "dependencies": [],
+    "compact": true
+  },
+  "native": {
+    "minTemperature": 2700,
+    "maxTemperature": 6500,
+    "considerSeasons": true,
+    "manualTemperatureCurve": false,
+    "timePeriod1": {
+      "start": "06:00",
+      "end": "12:00"
+    },
+    "timePeriod2": {
+      "start": "18:00",
+      "end": "23:00"
+    }
+  },
+  "admin": {
+    "tab": {
+      "name": "HCL Control settings",
+      "singleton": true
+    },
+    "options": {
+      "useCustom": true
+    }
+  },
+  "objects": {
+    "0": {
+      "template": "js-controller",
+      "type": "meta.user",
+      "objectId": "system.user.admin",
+      "file": "objects/admin.json"
+    }
+  },
+  "instanceObjects": [
+    {
+      "type": "state",
+      "common": {
+        "name": "Light temperature",
+        "type": "number",
+        "role": "level.temperature",
+        "read": true,
+        "write": false,
+        "def": 0,
+        "unit": "K",
+        "desc": "Current light temperature based on sun position and settings"
+      },
+      "_id": "lightTemperature"
+    }
+  ]
+}
