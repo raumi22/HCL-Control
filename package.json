@@ -1,0 +1,51 @@
+{
+  "name": "ioBroker.hcl-control",
+  "version": "0.1.0",
+  "description": "HCL-Control adapter for ioBroker",
+  "author": {
+    "name": "Manuel Auer",
+    "email": "ma-git@e-mail.de"
+  },
+  "license": "MIT",
+  "keywords": [
+    "iobroker",
+    "adapter",
+    "hcl",
+    "control",
+    "lighting"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/raumi22/ioBroker.hcl-control.git"
+  },
+  "bugs": {
+    "url": "https://github.com/raumi22/ioBroker.hcl-control/issues"
+  },
+  "homepage": "https://github.com/raumi22/ioBroker.hcl-control#readme",
+  "dependencies": {
+    "request": "^2.88.2"
+  },
+  "main": "main.js",
+  "engines": {
+    "node": ">=10"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "ioBroker": {
+    "type": "adapter",
+    "dependencies": [],
+    "localLinks": {},
+    "npmClient": [
+      "npm",
+      "--production",
+      "--save"
+    ],
+    "controller": ">=3.0.0",
+    "connectionType": "local",
+    "compact": true,
+    "category": "Lighting",
+    "icon": "icon.png",
+    "loglevel": "info"
+  }
+}
